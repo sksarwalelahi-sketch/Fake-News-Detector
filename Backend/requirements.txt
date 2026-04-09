@@ -1,0 +1,10 @@
+flask
+flask-cors
+langdetect
+sentence-transformers
+scikit-learn
+requests
+python-dotenv
+firebase-admin
+pillow
+pytesseract

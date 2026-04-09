@@ -1,0 +1,26 @@
+# Python environments and caches
+Backend/.venv/
+Backend/Lib/
+Backend/Scripts/
+Backend/share/
+Backend/__pycache__/
+Backend/**/*.pyc
+__pycache__/
+*.py[cod]
+
+# Secrets and local environment files
+Backend/.env
+Backend/serviceAccountKey.json
+.env
+.env.*
+
+# Frontend dependencies and build output
+fake-news-detector/node_modules/
+fake-news-detector/build/
+fake-news-detector/build-check*/
+fake-news-detector/.git-embedded-backup/
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+temp_readme_dump.txt
