@@ -664,7 +664,7 @@ body {
 .scoreboard {
   margin-top: 12px;
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 12px;
 }
 
@@ -900,6 +900,56 @@ body {
   background: #eef2f7;
   color: #566779;
   border-color: #d5dde6;
+}
+
+.confidence-card {
+  background: linear-gradient(145deg, #ffffff, #f4faf8);
+}
+
+.confidence-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 5px 10px;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 800;
+  white-space: nowrap;
+  border: 1px solid transparent;
+}
+
+.confidence-high {
+  background: #e6f7ea;
+  color: #13683a;
+  border-color: #bce5c8;
+}
+
+.confidence-medium {
+  background: #fff4e5;
+  color: #966100;
+  border-color: #efd4a4;
+}
+
+.confidence-low {
+  background: #ffe7ea;
+  color: #a51f39;
+  border-color: #f0bcc7;
+}
+
+.confidence-grid {
+  margin-top: 10px;
+  display: grid;
+  gap: 8px;
+}
+
+.confidence-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  color: #355949;
+  font-size: 0.9rem;
+  font-weight: 700;
 }
 
 .history-head {

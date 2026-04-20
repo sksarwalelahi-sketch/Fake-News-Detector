@@ -5,6 +5,7 @@ Backend/Scripts/
 Backend/share/
 Backend/__pycache__/
 Backend/**/*.pyc
+Backend/data/official_cache.db
 __pycache__/
 *.py[cod]
 

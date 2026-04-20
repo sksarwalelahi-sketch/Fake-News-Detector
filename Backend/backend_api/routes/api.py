@@ -1,6 +1,6 @@
 from flask import Blueprint, jsonify, request
 
-from backend_api.services.ai_engine import check_fake_news, get_api_key
+from backend_api.services.ai_engine import check_fake_news, get_api_key, get_official_registry_stats
 from backend_api.services.image_verification import verify_image_news
 from backend_api.services.firebase_store import (
     clear_history,
@@ -20,12 +20,14 @@ _MAX_IMAGE_BYTES = 8 * 1024 * 1024
 
 @api_bp.get('/health')
 def health():
+    official_stats = get_official_registry_stats()
     return jsonify(
         {
             'status': 'ok',
             'fact_check_api_key_configured': bool(get_api_key()),
             'firebase_ready': is_ready(),
             'firebase_error': init_error(),
+            'official_registry': official_stats,
         }
     ), 200
 
@@ -46,7 +48,10 @@ def check_news():
         'result': result.get('label', 'Unverified'),
         'reason': result.get('reason', ''),
         'similarity': float(result.get('similarity', 0) or 0),
+        'factCheckSimilarity': float(result.get('factCheckSimilarity', 0) or 0),
         'liveNewsSimilarity': float(result.get('liveNewsSimilarity', 0) or 0),
+        'officialContextSimilarity': float(result.get('officialContextSimilarity', 0) or 0),
+        'socialContextSimilarity': float(result.get('socialContextSimilarity', 0) or 0),
         'source': result.get('source', ''),
         'language': result.get('language', 'unknown'),
         'translationApplied': bool(result.get('translationApplied', False)),
@@ -117,7 +122,10 @@ def verify_image():
         'result': result.get('label', 'Unverified'),
         'reason': result.get('reason', ''),
         'similarity': float(result.get('similarity', 0) or 0),
+        'factCheckSimilarity': float(result.get('factCheckSimilarity', 0) or 0),
         'liveNewsSimilarity': float(result.get('liveNewsSimilarity', 0) or 0),
+        'officialContextSimilarity': float(result.get('officialContextSimilarity', 0) or 0),
+        'socialContextSimilarity': float(result.get('socialContextSimilarity', 0) or 0),
         'source': result.get('source', ''),
         'language': result.get('language', 'unknown'),
         'translationApplied': bool(result.get('translationApplied', False)),

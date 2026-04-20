@@ -90,11 +90,67 @@ const formatLabel = (value = '') => {
   return String(value).charAt(0).toUpperCase() + String(value).slice(1);
 };
 
+const confidenceBand = (score) => {
+  if (score >= 0.8) return { label: 'High', className: 'confidence-pill confidence-high' };
+  if (score >= 0.6) return { label: 'Medium', className: 'confidence-pill confidence-medium' };
+  return { label: 'Low', className: 'confidence-pill confidence-low' };
+};
+
+const resolveDecisionSignals = (result) => {
+  const fromEvidence = result?.evidence?.decisionSignals || {};
+  const decisionSimilarity =
+    typeof fromEvidence?.decisionSimilarity === 'number'
+      ? fromEvidence.decisionSimilarity
+      : typeof result?.similarity === 'number'
+        ? result.similarity
+        : 0;
+  const factCheckSimilarity =
+    typeof fromEvidence?.factCheckSimilarity === 'number'
+      ? fromEvidence.factCheckSimilarity
+      : typeof result?.factCheckSimilarity === 'number'
+        ? result.factCheckSimilarity
+        : 0;
+  const liveNewsSimilarity =
+    typeof fromEvidence?.liveNewsSimilarity === 'number'
+      ? fromEvidence.liveNewsSimilarity
+      : typeof result?.liveNewsSimilarity === 'number'
+        ? result.liveNewsSimilarity
+        : 0;
+  const officialContextSimilarity =
+    typeof fromEvidence?.officialContextSimilarity === 'number'
+      ? fromEvidence.officialContextSimilarity
+      : typeof result?.officialContextSimilarity === 'number'
+        ? result.officialContextSimilarity
+        : 0;
+  const socialContextSimilarity =
+    typeof fromEvidence?.socialContextSimilarity === 'number'
+      ? fromEvidence.socialContextSimilarity
+      : typeof result?.socialContextSimilarity === 'number'
+        ? result.socialContextSimilarity
+        : 0;
+  const officialMode =
+    typeof fromEvidence?.officialMode === 'boolean'
+      ? fromEvidence.officialMode
+      : Boolean(result?.officialMode);
+
+  return {
+    decisionSimilarity,
+    factCheckSimilarity,
+    liveNewsSimilarity,
+    officialContextSimilarity,
+    socialContextSimilarity,
+    officialMode,
+  };
+};
+
 const resultFromHistory = (entry) => ({
   label: entry?.result || 'Unverified',
   reason: entry?.reason || '',
   similarity: typeof entry?.similarity === 'number' ? entry.similarity : 0,
+  factCheckSimilarity: typeof entry?.factCheckSimilarity === 'number' ? entry.factCheckSimilarity : 0,
   liveNewsSimilarity: typeof entry?.liveNewsSimilarity === 'number' ? entry.liveNewsSimilarity : 0,
+  officialContextSimilarity: typeof entry?.officialContextSimilarity === 'number' ? entry.officialContextSimilarity : 0,
+  socialContextSimilarity: typeof entry?.socialContextSimilarity === 'number' ? entry.socialContextSimilarity : 0,
   source: entry?.source || '',
   language: entry?.language || 'unknown',
   translationApplied: Boolean(entry?.translationApplied),
@@ -102,8 +158,15 @@ const resultFromHistory = (entry) => ({
   evidence: entry?.evidence || {
     factCheck: null,
     liveNews: [],
+    officialContext: [],
+    officialTargets: [],
+    socialContext: [],
     liveNewsConsensus: { status: 'Limited', score: 0, summary: 'No saved consensus.' },
     liveNewsError: null,
+    officialContextError: null,
+    socialContextError: null,
+    factCheckError: null,
+    decisionSignals: null,
   },
   imageVerification: entry?.imageVerification || null,
   duplicateImage: entry?.duplicateImage || null,
@@ -192,6 +255,12 @@ function App() {
     };
   }, [history]);
 
+  const signals = useMemo(() => resolveDecisionSignals(result), [result]);
+  const confidence = useMemo(
+    () => confidenceBand(typeof signals?.decisionSimilarity === 'number' ? signals.decisionSimilarity : 0),
+    [signals]
+  );
+
   const loadHistory = async () => {
     setHistoryLoading(true);
     try {
@@ -251,11 +320,14 @@ function App() {
     setResult(null);
 
     try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 45000);
       const response = await fetch(`${API_BASE_URL}/check-news`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
+        signal: controller.signal,
         body: JSON.stringify({
           text: newsText.trim(),
           demoPresetId:
@@ -264,6 +336,7 @@ function App() {
               : '',
         }),
       });
+      clearTimeout(timeoutId);
 
       const data = await response.json().catch(() => ({}));
       if (!response.ok) {
@@ -282,10 +355,13 @@ function App() {
       const message = String(error?.message || '');
       const isNetworkError =
         error instanceof TypeError || /failed to fetch|networkerror/i.test(message);
+      const isTimeout = error?.name === 'AbortError';
 
       setResult({
         label: 'Error',
-        reason: isNetworkError
+        reason: isTimeout
+          ? 'Request timed out after 45 seconds. Backend is taking too long; check backend logs and internet connectivity.'
+          : isNetworkError
           ? `Cannot connect to backend at ${API_BASE_URL}. Start Flask API first (python app.py in Backend folder).`
           : message || 'Could not connect to backend API.',
       });
@@ -331,11 +407,15 @@ function App() {
     try {
       const formData = new FormData();
       formData.append('image', imageFile);
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 45000);
 
       const response = await fetch(`${API_BASE_URL}/verify-image`, {
         method: 'POST',
+        signal: controller.signal,
         body: formData,
       });
+      clearTimeout(timeoutId);
       const data = await response.json().catch(() => ({}));
       if (!response.ok) {
         throw new Error(data.error || 'Failed to verify image.');
@@ -352,7 +432,10 @@ function App() {
     } catch (error) {
       setResult({
         label: 'Error',
-        reason: String(error?.message || 'Could not verify image.'),
+        reason:
+          error?.name === 'AbortError'
+            ? 'Image verification timed out after 45 seconds. Please retry after backend is ready.'
+            : String(error?.message || 'Could not verify image.'),
       });
     } finally {
       setImageLoading(false);
@@ -541,10 +624,19 @@ function App() {
               )}
               {result?.reason ? <p>{result.reason}</p> : null}
               {typeof result?.similarity === 'number' ? (
-                <p>Similarity: {result.similarity.toFixed(3)}</p>
+                <p>Decision similarity: {result.similarity.toFixed(3)}</p>
+              ) : null}
+              {typeof result?.factCheckSimilarity === 'number' ? (
+                <p>Fact-check similarity: {result.factCheckSimilarity.toFixed(3)}</p>
               ) : null}
               {typeof result?.liveNewsSimilarity === 'number' ? (
                 <p>Live news relevance: {result.liveNewsSimilarity.toFixed(3)}</p>
+              ) : null}
+              {typeof result?.officialContextSimilarity === 'number' ? (
+                <p>Official site relevance: {result.officialContextSimilarity.toFixed(3)}</p>
+              ) : null}
+              {typeof result?.socialContextSimilarity === 'number' ? (
+                <p>Social corroboration relevance: {result.socialContextSimilarity.toFixed(3)}</p>
               ) : null}
               {result?.translationApplied && result?.translatedText ? (
                 <p>Translated for analysis: {result.translatedText}</p>
@@ -607,14 +699,80 @@ function App() {
               </div>
             </div>
 
+            <div className="evidence-card confidence-card">
+              <div className="consensus-head">
+                <h3>Evidence Confidence Meter</h3>
+                <span className={confidence.className}>{confidence.label} confidence</span>
+              </div>
+              <p>
+                Decision confidence is based on the combined verification signal currently at{' '}
+                <strong>{clampPercent(signals?.decisionSimilarity).toFixed(0)}%</strong>.
+              </p>
+              <div className="confidence-grid">
+                <div className="confidence-row">
+                  <span>Decision Signal</span>
+                  <strong>{clampPercent(signals?.decisionSimilarity).toFixed(0)}%</strong>
+                </div>
+                <div className="score-track">
+                  <div className="score-fill score-fill-primary" style={{ width: `${clampPercent(signals?.decisionSimilarity)}%` }} />
+                </div>
+
+                <div className="confidence-row">
+                  <span>Fact-check Signal</span>
+                  <strong>{clampPercent(signals?.factCheckSimilarity).toFixed(0)}%</strong>
+                </div>
+                <div className="score-track">
+                  <div className="score-fill score-fill-secondary" style={{ width: `${clampPercent(signals?.factCheckSimilarity)}%` }} />
+                </div>
+
+                <div className="confidence-row">
+                  <span>Live Coverage Signal</span>
+                  <strong>{clampPercent(signals?.liveNewsSimilarity).toFixed(0)}%</strong>
+                </div>
+                <div className="score-track">
+                  <div className="score-fill score-fill-tertiary" style={{ width: `${clampPercent(signals?.liveNewsSimilarity)}%` }} />
+                </div>
+
+                <div className="confidence-row">
+                  <span>Official Website Signal</span>
+                  <strong>{clampPercent(signals?.officialContextSimilarity).toFixed(0)}%</strong>
+                </div>
+                <div className="score-track">
+                  <div className="score-fill score-fill-quaternary" style={{ width: `${clampPercent(signals?.officialContextSimilarity)}%` }} />
+                </div>
+
+                <div className="confidence-row">
+                  <span>Social Corroboration Signal</span>
+                  <strong>{clampPercent(signals?.socialContextSimilarity).toFixed(0)}%</strong>
+                </div>
+                <div className="score-track">
+                  <div className="score-fill score-fill-consensus" style={{ width: `${clampPercent(signals?.socialContextSimilarity)}%` }} />
+                </div>
+              </div>
+              <p>{signals?.officialMode ? 'Official-mode decision path was active.' : 'Corroboration/fallback decision path was active.'}</p>
+            </div>
+
             <div className="scoreboard">
               <div className="score-card">
                 <div className="score-row">
-                  <span>Fact-check match</span>
+                  <span>Decision similarity</span>
                   <strong>{clampPercent(result?.similarity).toFixed(0)}%</strong>
                 </div>
                 <div className="score-track">
                   <div className="score-fill score-fill-primary" style={{ width: `${clampPercent(result?.similarity)}%` }} />
+                </div>
+              </div>
+
+              <div className="score-card">
+                <div className="score-row">
+                  <span>Fact-check match</span>
+                  <strong>{clampPercent(result?.factCheckSimilarity).toFixed(0)}%</strong>
+                </div>
+                <div className="score-track">
+                  <div
+                    className="score-fill score-fill-secondary"
+                    style={{ width: `${clampPercent(result?.factCheckSimilarity)}%` }}
+                  />
                 </div>
               </div>
 
@@ -625,8 +783,23 @@ function App() {
                 </div>
                 <div className="score-track">
                   <div
-                    className="score-fill score-fill-secondary"
+                    className="score-fill score-fill-tertiary"
                     style={{ width: `${clampPercent(result?.liveNewsSimilarity)}%` }}
+                  />
+                </div>
+              </div>
+
+              <div className="score-card">
+                <div className="score-row">
+                  <span>Official site relevance</span>
+                  <strong>
+                    {clampPercent(result?.officialContextSimilarity).toFixed(0)}%
+                  </strong>
+                </div>
+                <div className="score-track">
+                  <div
+                    className="score-fill score-fill-quaternary"
+                    style={{ width: `${clampPercent(result?.officialContextSimilarity)}%` }}
                   />
                 </div>
               </div>
@@ -642,6 +815,21 @@ function App() {
                   <div
                     className="score-fill score-fill-tertiary"
                     style={{ width: `${clampPercent(result?.evidence?.liveNews?.[0]?.credibilityScore)}%` }}
+                  />
+                </div>
+              </div>
+
+              <div className="score-card">
+                <div className="score-row">
+                  <span>Social corroboration</span>
+                  <strong>
+                    {clampPercent(result?.socialContextSimilarity).toFixed(0)}%
+                  </strong>
+                </div>
+                <div className="score-track">
+                  <div
+                    className="score-fill score-fill-consensus"
+                    style={{ width: `${clampPercent(result?.socialContextSimilarity)}%` }}
                   />
                 </div>
               </div>
@@ -741,6 +929,69 @@ function App() {
                 </ul>
               ) : (
                 <p>No live news articles were matched for this query.</p>
+              )}
+            </div>
+
+            <div className="evidence-card">
+              <h3>Official Website Context (Proof Links)</h3>
+              {Array.isArray(result.evidence.officialTargets) && result.evidence.officialTargets.length ? (
+                <p>
+                  Targeted official sources:{' '}
+                  {result.evidence.officialTargets
+                    .map((target) => target?.name)
+                    .filter(Boolean)
+                    .join(', ')}
+                </p>
+              ) : null}
+              {result.evidence.officialContextError ? <p>{result.evidence.officialContextError}</p> : null}
+              {result.evidence.factCheckError ? <p>{result.evidence.factCheckError}</p> : null}
+              {Array.isArray(result.evidence.officialContext) && result.evidence.officialContext.length ? (
+                <ul className="evidence-list">
+                  {result.evidence.officialContext.map((item, index) => (
+                    <li key={`${item.url}-${index}`} className="evidence-item">
+                      <div className="evidence-item-top">
+                        <a href={item.url} target="_blank" rel="noreferrer">
+                          {item.title || item.url}
+                        </a>
+                      </div>
+                      <span>
+                        {item.name || item.domain || 'Official source'}
+                        {item.snippet ? ` | ${item.snippet}` : ''}
+                        {typeof item.similarity === 'number' ? ` | similarity ${item.similarity.toFixed(3)}` : ''}
+                        {typeof item.keywordOverlap === 'number' ? ` | overlap ${item.keywordOverlap.toFixed(3)}` : ''}
+                        {item.publishedAt ? ` | ${item.publishedAt}` : ''}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p>No related official website context was found for this input.</p>
+              )}
+            </div>
+
+            <div className="evidence-card">
+              <h3>Regional Social Corroboration</h3>
+              {result.evidence.socialContextError ? <p>{result.evidence.socialContextError}</p> : null}
+              {Array.isArray(result.evidence.socialContext) && result.evidence.socialContext.length ? (
+                <ul className="evidence-list">
+                  {result.evidence.socialContext.map((item, index) => (
+                    <li key={`${item.url}-${index}`} className="evidence-item">
+                      <div className="evidence-item-top">
+                        <a href={item.url} target="_blank" rel="noreferrer">
+                          {item.title || item.url}
+                        </a>
+                      </div>
+                      <span>
+                        {item.platform || 'Social'}
+                        {item.snippet ? ` | ${item.snippet}` : ''}
+                        {typeof item.similarity === 'number' ? ` | similarity ${item.similarity.toFixed(3)}` : ''}
+                        {typeof item.keywordOverlap === 'number' ? ` | overlap ${item.keywordOverlap.toFixed(3)}` : ''}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p>No relevant social corroboration links were found for this query.</p>
               )}
             </div>
 
@@ -920,8 +1171,11 @@ function App() {
                   <div className="history-meta">
                     <span className={badgeClassByLabel(entry.result)}>{entry.result}</span>
                     <span>
-                      {typeof entry.similarity === 'number' ? `Fact ${entry.similarity.toFixed(3)} | ` : ''}
+                      {typeof entry.similarity === 'number' ? `Decision ${entry.similarity.toFixed(3)} | ` : ''}
+                      {typeof entry.factCheckSimilarity === 'number' ? `Fact ${entry.factCheckSimilarity.toFixed(3)} | ` : ''}
                       {typeof entry.liveNewsSimilarity === 'number' ? `Live ${entry.liveNewsSimilarity.toFixed(3)} | ` : ''}
+                      {typeof entry.officialContextSimilarity === 'number' ? `Official ${entry.officialContextSimilarity.toFixed(3)} | ` : ''}
+                      {typeof entry.socialContextSimilarity === 'number' ? `Social ${entry.socialContextSimilarity.toFixed(3)} | ` : ''}
                       {formatTime(entry.createdAt)}
                     </span>
                   </div>
