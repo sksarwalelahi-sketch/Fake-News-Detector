@@ -70,7 +70,7 @@ def _build_google_reverse_search_url(
             data=data,
             headers=headers,
             allow_redirects=False,
-            timeout=20,
+            timeout=10,
         )
         if response.status_code not in (301, 302):
             return None, f'Reverse image lookup returned status {response.status_code}.'
@@ -91,7 +91,7 @@ def _extract_candidate_urls(search_url: str) -> Tuple[list[str], Optional[str]]:
         )
     }
     try:
-        response = requests.get(search_url, headers=headers, timeout=20)
+        response = requests.get(search_url, headers=headers, timeout=10)
         response.raise_for_status()
         html = response.text
     except Exception:
