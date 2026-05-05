@@ -22,6 +22,7 @@ REAL TIME MISINFORMATION FLAGGING (REGIONAL LANGUAGES)
 - Multilingual support for regional language inputs with translation to English before analysis.
 - Claim verification using trusted fact-check sources through the Google Fact Check API.
 - Live news comparison with recent coverage to strengthen verification accuracy.
+- Toggleable verification window (`all-time` or `last 7 days`) for current-rumor checks.
 - Entity-aware official-source RAG with external registry (`Backend/data/official_registry.json`).
 - Async official retrieval with persistent cache store for faster repeated checks.
 - Explainable AI output with result label, reason, similarity score, and source evidence.

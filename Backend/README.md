@@ -93,12 +93,27 @@ Returns backend, API key, and Firebase status.
 ### `POST /check-news`
 Body:
 ```json
-{ "text": "Your news text" }
+{
+  "text": "Your news text",
+  "recencyMode": "one-week"
+}
 ```
+`recencyMode` values:
+- `all-time` (default): use all available evidence
+- `one-week`: only evidence from the last 7 days is considered
+
 Response includes analysis + stored history item metadata.
+
+### `POST /verify-image`
+Multipart form fields:
+- `image`: JPG/PNG/WEBP file
+- `recencyMode` (optional): `all-time` or `one-week`
+
+When `recencyMode=one-week`, OCR-extracted claim is verified using only last-7-days evidence.
 
 ### `GET /history?limit=50`
 Returns history list from Firestore ordered newest first.
+Each record includes `recencyMode` used at analysis time.
 
 ### `DELETE /history`
 Clears all records in configured Firestore collection.

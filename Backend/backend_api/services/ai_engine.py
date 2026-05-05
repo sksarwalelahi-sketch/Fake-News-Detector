@@ -13,7 +13,7 @@ import threading
 import time
 from urllib.parse import parse_qs, unquote, urlparse
 import xml.etree.ElementTree as ET
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import numpy as np
 import requests
@@ -73,6 +73,71 @@ _DEFAULT_OFFICIAL_TARGETS = (
         'priority': 7,
     },
     {
+        'id': 'gov-election-results-eci',
+        'name': 'ECI Results Portal (Constituency/State)',
+        'domains': ['results.eci.gov.in'],
+        'keywords': [
+            'election',
+            'elections',
+            'poll',
+            'polls',
+            'vote',
+            'voting',
+            'evm',
+            'counting',
+            'assembly election',
+            'lok sabha',
+            'constituency',
+            'seat',
+            'statewise',
+            'partywise',
+            'winner',
+            'west bengal election',
+        ],
+        'priority': 16,
+    },
+    {
+        'id': 'gov-election-state-wb',
+        'name': 'Chief Electoral Officer - West Bengal',
+        'domains': ['ceowestbengal.wb.gov.in', 'ceowestbengal.nic.in', 'wbceo.wb.gov.in'],
+        'keywords': [
+            'election',
+            'elections',
+            'poll',
+            'polls',
+            'vote',
+            'voting',
+            'evm',
+            'counting',
+            'assembly election',
+            'lok sabha',
+            'west bengal election',
+            'west bengal',
+            'constituency',
+            'state result',
+        ],
+        'priority': 15,
+    },
+    {
+        'id': 'gov-election-india',
+        'name': 'Election Commission of India',
+        'domains': ['eci.gov.in'],
+        'keywords': [
+            'election',
+            'elections',
+            'poll',
+            'polls',
+            'vote',
+            'voting',
+            'evm',
+            'counting',
+            'assembly election',
+            'lok sabha',
+            'west bengal election',
+        ],
+        'priority': 14,
+    },
+    {
         'id': 'netflix',
         'name': 'Netflix Official',
         'domains': ['about.netflix.com', 'netflix.com'],
@@ -125,6 +190,10 @@ _ENTITY_ALIAS_TO_DOMAINS = {
     'reserve bank of india': ['rbi.org.in'],
     'rbi': ['rbi.org.in'],
     'sebi': ['sebi.gov.in'],
+    'election commission of india': ['results.eci.gov.in', 'eci.gov.in'],
+    'eci': ['results.eci.gov.in', 'eci.gov.in'],
+    'chief electoral officer west bengal': ['ceowestbengal.wb.gov.in', 'ceowestbengal.nic.in'],
+    'west bengal election commission': ['ceowestbengal.wb.gov.in', 'ceowestbengal.nic.in'],
     'indian railways': ['indianrailways.gov.in'],
     'irctc': ['irctc.co.in'],
     'ministry of road transport': ['morth.nic.in'],
@@ -169,6 +238,99 @@ _SOCIAL_SEARCH_DOMAINS = (
     'x.com',
     'youtube.com',
 )
+_FACT_CHECK_REFUTE_TERMS = (
+    'false',
+    'fake',
+    'hoax',
+    'misleading',
+    'incorrect',
+    'not true',
+    'partly false',
+    'mostly false',
+    'no evidence',
+)
+_FACT_CHECK_SUPPORT_TERMS = (
+    'true',
+    'correct',
+    'accurate',
+    'mostly true',
+    'verified',
+    'genuine',
+)
+_FACT_CHECK_MIXED_TERMS = (
+    'partly true',
+    'half true',
+    'mixed',
+    'unproven',
+    'out of context',
+)
+_TIME_SENSITIVE_HINTS = (
+    'breaking',
+    'today',
+    'now',
+    'latest',
+    'current',
+    'just',
+    'ongoing',
+    'election',
+    'poll',
+    'vote',
+    'won',
+    'wins',
+    'result',
+)
+_ELECTION_HINTS = (
+    'election',
+    'poll',
+    'vote',
+    'voting',
+    'assembly',
+    'lok sabha',
+    'rajya sabha',
+    'constituency',
+    'evm',
+    'counting',
+)
+_POLITICAL_PARTY_ALIASES: Dict[str, Tuple[str, ...]] = {
+    'tmc': ('tmc', 'trinamool', 'trinamool congress', 'aitc'),
+    'bjp': ('bjp', 'bharatiya janata party'),
+    'congress': ('congress', 'inc', 'indian national congress'),
+    'aap': ('aap', 'aam aadmi party'),
+    'cpi(m)': ('cpi(m)', 'cpim', 'communist party of india marxist'),
+    'left': ('left front',),
+}
+_ECI_RESULTS_DOMAIN = 'results.eci.gov.in'
+_ECI_RESULT_PATH_HINTS = (
+    'resultacgen',
+    'acresultgen',
+    'acresultbye',
+    'pcresultgen',
+    'constituencywise',
+    'candidateswise',
+    'partywiseresult',
+    'partywiseleadresult',
+    'partywisewinresult',
+    'statewise',
+    'roundwise',
+    'chartwiseresult',
+)
+_ELECTION_STATE_CODE_HINTS = {
+    'west bengal': 'S25',
+    'assam': 'S03',
+    'kerala': 'S11',
+    'tamil nadu': 'S22',
+    'puducherry': 'U07',
+    'bihar': 'S04',
+    'jharkhand': 'S27',
+    'delhi': 'S05',
+    'uttar pradesh': 'S24',
+    'odisha': 'S18',
+    'andhra pradesh': 'S01',
+    'maharashtra': 'S13',
+}
+_RECENCY_MODE_ALL_TIME = 'all-time'
+_RECENCY_MODE_ONE_WEEK = 'one-week'
+_VALID_RECENCY_MODES = {_RECENCY_MODE_ALL_TIME, _RECENCY_MODE_ONE_WEEK}
 _DISCOVERED_ENTITY_CACHE: Dict[str, Dict[str, Any]] = {}
 _DISCOVERY_CACHE_TTL_SECONDS = 6 * 3600
 _OFFICIAL_REGISTRY_CACHE: Dict[str, Any] = {
@@ -503,7 +665,7 @@ def _score_source_credibility(source_name: str, link: str) -> Dict[str, Any]:
 def _score_recency(published_at: str) -> Dict[str, Any]:
     if not published_at:
         return {
-            'score': 0.45,
+            'score': 0.35,
             'bucket': 'Unknown',
         }
 
@@ -518,15 +680,310 @@ def _score_recency(published_at: str) -> Dict[str, Any]:
         if age_hours <= 24:
             return {'score': 0.92, 'bucket': 'Today'}
         if age_hours <= 72:
-            return {'score': 0.8, 'bucket': 'Recent'}
+            return {'score': 0.82, 'bucket': 'Recent'}
         if age_hours <= 168:
-            return {'score': 0.65, 'bucket': 'This Week'}
-        return {'score': 0.48, 'bucket': 'Older'}
+            return {'score': 0.72, 'bucket': 'This Week'}
+        if age_hours <= 24 * 30:
+            return {'score': 0.5, 'bucket': 'This Month'}
+        if age_hours <= 24 * 90:
+            return {'score': 0.32, 'bucket': 'This Quarter'}
+        if age_hours <= 24 * 365:
+            return {'score': 0.16, 'bucket': 'This Year'}
+        return {'score': 0.05, 'bucket': 'Older'}
     except Exception:
         return {
-            'score': 0.45,
+            'score': 0.35,
             'bucket': 'Unknown',
         }
+
+
+def _parse_datetime_any(raw_value: str) -> Optional[datetime]:
+    value = str(raw_value or '').strip()
+    if not value:
+        return None
+
+    dt: Optional[datetime] = None
+    try:
+        dt = parsedate_to_datetime(value)
+    except Exception:
+        dt = None
+
+    if dt is None:
+        iso_value = value.replace('Z', '+00:00')
+        try:
+            dt = datetime.fromisoformat(iso_value)
+        except Exception:
+            dt = None
+
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
+def _extract_years(text: str) -> List[int]:
+    return [int(year) for year in re.findall(r'\b(19\d{2}|20\d{2}|21\d{2})\b', text or '')]
+
+
+def _contains_any_term(text: str, terms: Tuple[str, ...]) -> bool:
+    normalized = str(text or '').lower()
+    for term in terms:
+        escaped = re.escape(term.lower())
+        pattern = rf'\b{escaped}\b' if re.fullmatch(r'[a-z0-9 ]+', term.lower()) else escaped
+        if re.search(pattern, normalized):
+            return True
+    return False
+
+
+def _fact_check_rating_signal(rating: str) -> str:
+    normalized = str(rating or '').strip().lower()
+    if not normalized:
+        return 'unknown'
+    if any(term in normalized for term in _FACT_CHECK_REFUTE_TERMS):
+        return 'refutes'
+    if any(term in normalized for term in _FACT_CHECK_MIXED_TERMS):
+        return 'mixed'
+    if any(term in normalized for term in _FACT_CHECK_SUPPORT_TERMS):
+        return 'supports'
+    return 'unknown'
+
+
+def _extract_party_mentions(text: str) -> set:
+    lowered = str(text or '').lower()
+    mentions: set = set()
+    for party, aliases in _POLITICAL_PARTY_ALIASES.items():
+        for alias in aliases:
+            if re.search(rf'\b{re.escape(alias.lower())}\b', lowered):
+                mentions.add(party)
+                break
+    return mentions
+
+
+def _collect_evidence_dates(
+    best_claim: Optional[Dict[str, Any]],
+    top_live_news: List[Dict[str, Any]],
+    official_context: List[Dict[str, Any]],
+    social_context: List[Dict[str, Any]],
+) -> List[datetime]:
+    dates: List[datetime] = []
+    if best_claim:
+        claim_date = _parse_datetime_any(str(best_claim.get('claimDate', '')))
+        if claim_date is not None:
+            dates.append(claim_date)
+        for review in best_claim.get('claimReview', []) or []:
+            review_date = _parse_datetime_any(str(review.get('reviewDate', '')))
+            if review_date is not None:
+                dates.append(review_date)
+
+    for item in top_live_news:
+        dt = _parse_datetime_any(str(item.get('publishedAt', '')))
+        if dt is not None:
+            dates.append(dt)
+    for item in official_context:
+        dt = _parse_datetime_any(str(item.get('publishedAt', '')))
+        if dt is not None:
+            dates.append(dt)
+    for item in social_context:
+        dt = _parse_datetime_any(str(item.get('publishedAt', '')))
+        if dt is not None:
+            dates.append(dt)
+
+    return dates
+
+
+def _build_temporal_signal(
+    user_text: str,
+    claim_text: str,
+    best_claim: Optional[Dict[str, Any]],
+    top_live_news: List[Dict[str, Any]],
+    official_context: List[Dict[str, Any]],
+    social_context: List[Dict[str, Any]],
+) -> Dict[str, Any]:
+    user_years = set(_extract_years(user_text))
+    evidence_years = set(_extract_years(claim_text))
+    for item in top_live_news:
+        evidence_years.update(_extract_years(str(item.get('title', ''))))
+    for item in official_context:
+        evidence_years.update(_extract_years(str(item.get('title', ''))))
+
+    dates = _collect_evidence_dates(best_claim, top_live_news, official_context, social_context)
+    newest_date = max(dates) if dates else None
+    newest_age_days: Optional[float] = None
+    if newest_date is not None:
+        newest_age_days = max(0.0, (datetime.now(timezone.utc) - newest_date).total_seconds() / 86400.0)
+        evidence_years.add(int(newest_date.year))
+
+    claim_is_time_sensitive = _contains_any_term(user_text, _TIME_SENSITIVE_HINTS)
+    year_mismatch = bool(user_years and evidence_years and user_years.isdisjoint(evidence_years))
+    stale_for_current_claim = bool(
+        not user_years and claim_is_time_sensitive and newest_age_days is not None and newest_age_days > 365
+    )
+
+    return {
+        'userYears': sorted(user_years),
+        'evidenceYears': sorted(evidence_years),
+        'newestEvidenceIso': newest_date.isoformat() if newest_date is not None else '',
+        'newestEvidenceAgeDays': newest_age_days,
+        'yearMismatch': year_mismatch,
+        'staleForCurrentClaim': stale_for_current_claim,
+        'timeSensitiveClaim': claim_is_time_sensitive,
+    }
+
+
+def _detect_election_winner_conflict(
+    user_text: str,
+    live_news_articles: List[Dict[str, Any]],
+    explicit_years: List[int],
+) -> Dict[str, Any]:
+    lowered_user = str(user_text or '').lower()
+    if explicit_years:
+        return {'isConflict': False, 'claimParties': [], 'conflictingParties': []}
+    if not _contains_any_term(lowered_user, _ELECTION_HINTS):
+        return {'isConflict': False, 'claimParties': [], 'conflictingParties': []}
+    if not re.search(r'\b(won|wins|winner|victory|defeated|swept|beat)\b', lowered_user):
+        return {'isConflict': False, 'claimParties': [], 'conflictingParties': []}
+
+    claim_parties = _extract_party_mentions(lowered_user)
+    if not claim_parties:
+        return {'isConflict': False, 'claimParties': [], 'conflictingParties': []}
+
+    mismatched_articles = 0
+    matched_articles = 0
+    conflicting_parties: set = set()
+    for article in live_news_articles:
+        parties_in_title = _extract_party_mentions(str(article.get('title', '')))
+        if not parties_in_title:
+            continue
+        if claim_parties & parties_in_title:
+            matched_articles += 1
+            continue
+        mismatched_articles += 1
+        conflicting_parties.update(parties_in_title)
+
+    is_conflict = mismatched_articles >= 2 and matched_articles == 0 and bool(conflicting_parties)
+    return {
+        'isConflict': is_conflict,
+        'claimParties': sorted(claim_parties),
+        'conflictingParties': sorted(conflicting_parties),
+    }
+
+
+def _normalize_recency_mode(value: str) -> str:
+    normalized = str(value or '').strip().lower()
+    if normalized in {'week', '7d', '7-days', 'last-7-days', 'last7days'}:
+        return _RECENCY_MODE_ONE_WEEK
+    if normalized in _VALID_RECENCY_MODES:
+        return normalized
+    return _RECENCY_MODE_ALL_TIME
+
+
+def _is_within_days(raw_date: str, days: int) -> bool:
+    dt = _parse_datetime_any(raw_date)
+    if dt is None:
+        return False
+    age_days = (datetime.now(timezone.utc) - dt).total_seconds() / 86400.0
+    if age_days < 0:
+        age_days = 0.0
+    return age_days <= float(days)
+
+
+def _derive_datetime_from_eci_results_url(url: str) -> Optional[datetime]:
+    lower_url = str(url or '').lower()
+    if _ECI_RESULTS_DOMAIN not in lower_url:
+        return None
+
+    match = re.search(
+        r'(?:resultacgen|acresultgen|pcresultgen|acresultbye|resultacbye)([a-z]+)(20\d{2})',
+        lower_url,
+    )
+    if not match:
+        return None
+
+    month_token = match.group(1).lower()
+    year = int(match.group(2))
+    month_map = {
+        'jan': 1,
+        'january': 1,
+        'feb': 2,
+        'february': 2,
+        'mar': 3,
+        'march': 3,
+        'apr': 4,
+        'april': 4,
+        'may': 5,
+        'jun': 6,
+        'june': 6,
+        'jul': 7,
+        'july': 7,
+        'aug': 8,
+        'august': 8,
+        'sep': 9,
+        'sept': 9,
+        'september': 9,
+        'oct': 10,
+        'october': 10,
+        'nov': 11,
+        'november': 11,
+        'dec': 12,
+        'december': 12,
+    }
+    month = month_map.get(month_token)
+    if month is None:
+        return None
+
+    try:
+        ist_tz = timezone(timedelta(hours=5, minutes=30))
+        return datetime(year=year, month=month, day=1, tzinfo=ist_tz)
+    except Exception:
+        return None
+
+
+def _filter_evidence_items_by_days(
+    items: List[Dict[str, Any]],
+    days: int,
+) -> Tuple[List[Dict[str, Any]], Dict[str, int]]:
+    kept: List[Dict[str, Any]] = []
+    dropped_undated = 0
+    dropped_old = 0
+
+    for item in items:
+        raw_date = str(item.get('publishedAt', '') or '')
+        if not raw_date.strip():
+            derived_dt = _derive_datetime_from_eci_results_url(str(item.get('url', '')))
+            if derived_dt is not None:
+                age_days = (datetime.now(timezone.utc) - derived_dt.astimezone(timezone.utc)).total_seconds() / 86400.0
+                if age_days < 0:
+                    age_days = 0.0
+                if age_days <= float(days):
+                    item['publishedAt'] = derived_dt.isoformat()
+                    kept.append(item)
+                    continue
+            dropped_undated += 1
+            continue
+        if _is_within_days(raw_date, days):
+            kept.append(item)
+        else:
+            dropped_old += 1
+
+    return kept, {
+        'kept': len(kept),
+        'droppedUndated': dropped_undated,
+        'droppedOld': dropped_old,
+    }
+
+
+def _is_fact_check_recent(best_claim: Optional[Dict[str, Any]], days: int) -> bool:
+    if not best_claim:
+        return False
+    dates = _collect_evidence_dates(best_claim, [], [], [])
+    if not dates:
+        return False
+    newest = max(dates)
+    age_days = (datetime.now(timezone.utc) - newest).total_seconds() / 86400.0
+    if age_days < 0:
+        age_days = 0.0
+    return age_days <= float(days)
 
 
 def fetch_live_news(query: str) -> Tuple[List[Dict[str, str]], Optional[str]]:
@@ -807,6 +1264,109 @@ def _domain_matches_entity(domain: str, entity: str) -> bool:
 def _is_local_event_claim(text: str) -> bool:
     normalized = (text or '').lower()
     return any(token in normalized for token in _LOCAL_EVENT_HINTS)
+
+
+def _is_election_claim_text(text: str) -> bool:
+    normalized = str(text or '').lower()
+    return any(token in normalized for token in _ELECTION_HINTS)
+
+
+def _is_eci_results_domain(domain: str) -> bool:
+    host = _normalize_host(domain)
+    return host == _ECI_RESULTS_DOMAIN or host.endswith(f'.{_ECI_RESULTS_DOMAIN}')
+
+
+def _extract_state_codes_from_text(text: str) -> List[str]:
+    normalized = str(text or '').lower()
+    codes: List[str] = []
+    for state_name, state_code in _ELECTION_STATE_CODE_HINTS.items():
+        if state_name in normalized and state_code not in codes:
+            codes.append(state_code)
+    return codes[:2]
+
+
+def _candidate_election_years(text: str, limit: int = 2) -> List[int]:
+    now_year = datetime.now(timezone.utc).year
+    years: List[int] = [now_year]
+
+    for year in _extract_years(text):
+        if 2000 <= year <= (now_year + 1) and year not in years:
+            years.append(year)
+
+    if (now_year - 1) not in years:
+        years.append(now_year - 1)
+
+    return years[: max(1, limit)]
+
+
+def _build_eci_seed_result_links(query: str) -> List[Dict[str, str]]:
+    if not _is_election_claim_text(query):
+        return []
+
+    years = _candidate_election_years(query, limit=2)
+    state_codes = _extract_state_codes_from_text(query)
+    normalized_query = str(query or '').lower()
+
+    if any(token in normalized_query for token in ('lok sabha', 'parliament', 'parliamentary')):
+        base_patterns = ['PcResultGenJune{year}']
+    elif 'bye' in normalized_query:
+        base_patterns = ['AcResultByeNov{year}', 'AcResultByeJun{year}']
+    else:
+        base_patterns = ['ResultAcGenMay{year}', 'ResultAcGenNov{year}', 'AcResultGenJune{year}']
+
+    seeded: List[Dict[str, str]] = []
+    seen: set = set()
+
+    def _append_seed(url: str, title: str) -> None:
+        key = str(url or '').strip().lower()
+        if not key or key in seen:
+            return
+        seen.add(key)
+        seeded.append({'url': str(url).strip(), 'title': str(title).strip()})
+
+    for year in years:
+        for pattern in base_patterns:
+            event_path = pattern.format(year=year)
+            index_url = f'https://{_ECI_RESULTS_DOMAIN}/{event_path}/index.htm'
+            _append_seed(index_url, f'ECI results {year} ({event_path})')
+
+            for code in state_codes:
+                for suffix in ('partywiseresult', 'statewise'):
+                    result_url = f'https://{_ECI_RESULTS_DOMAIN}/{event_path}/{suffix}-{code}.htm'
+                    _append_seed(result_url, f'ECI {suffix} {code} {year} ({event_path})')
+
+                constituency_stub = f'https://{_ECI_RESULTS_DOMAIN}/{event_path}/Constituencywise{code}1.htm'
+                _append_seed(constituency_stub, f'ECI constituency-wise {code} {year} ({event_path})')
+
+    # Keep the generic portal URL only as fallback when result-link slots remain.
+    if len(seeded) < 8:
+        _append_seed(f'https://{_ECI_RESULTS_DOMAIN}/', 'ECI official election results portal')
+    return seeded[:8]
+
+
+def _official_result_signal_boost(user_text: str, domain: str, url: str, title: str, target_id: str) -> float:
+    if not _is_election_claim_text(user_text):
+        return 0.0
+
+    boost = 0.0
+    host = _normalize_host(domain)
+    url_lower = str(url or '').lower()
+    title_lower = str(title or '').lower()
+
+    if _is_eci_results_domain(host):
+        boost += 0.20
+    if any(hint in url_lower for hint in _ECI_RESULT_PATH_HINTS):
+        boost += 0.16
+    if any(hint in title_lower for hint in ('trends', 'results', 'constituency', 'party-wise', 'state-wise')):
+        boost += 0.10
+    if 'gov-election-results-eci' in str(target_id or '').lower():
+        boost += 0.10
+
+    state_codes = _extract_state_codes_from_text(user_text)
+    if state_codes and any(code.lower() in url_lower for code in state_codes):
+        boost += 0.06
+
+    return min(0.38, boost)
 
 
 def _discover_official_domains_for_entity(entity: str) -> List[str]:
@@ -1095,7 +1655,51 @@ def _fetch_social_context(user_text: str, query: str) -> Tuple[List[Dict[str, An
 
 
 def _search_official_pages(query: str, domain: str) -> Tuple[List[Dict[str, str]], Optional[str]]:
-    results, error = _search_site_results(query, domain)
+    normalized_domain = _normalize_host(domain)
+
+    if _is_eci_results_domain(normalized_domain) and _is_election_claim_text(query):
+        ordered: List[Dict[str, str]] = []
+        seen: set = set()
+        errors: List[str] = []
+
+        for item in _build_eci_seed_result_links(query):
+            url = str(item.get('url', '')).strip()
+            if not url:
+                continue
+            key = url.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            ordered.append({'url': url, 'title': str(item.get('title', url)).strip()})
+
+        expanded_queries = [
+            query,
+            f'{query} party wise result',
+        ]
+        for expanded_query in expanded_queries:
+            results, error = _search_site_results(expanded_query, normalized_domain)
+            if error:
+                errors.append(error)
+            for item in results:
+                url = str(item.get('url', '')).strip()
+                title = str(item.get('title', '')).strip()
+                if not url or not title:
+                    continue
+                key = url.lower()
+                if key in seen:
+                    continue
+                seen.add(key)
+                ordered.append({'url': url, 'title': title})
+                if len(ordered) >= 8:
+                    break
+            if len(ordered) >= 8:
+                break
+
+        if ordered:
+            return ordered[:8], ('; '.join(errors[:1]) if errors else None)
+        return [], (('; '.join(errors[:2])) if errors else f'Could not query official search for {domain}.')
+
+    results, error = _search_site_results(query, normalized_domain)
     return results[:3], error or (None if results else f'Could not query official search for {domain}.')
 
 
@@ -1200,7 +1804,7 @@ def _crawl_official_domain(domain: str, query: str) -> List[Dict[str, str]]:
 
 
 def _fetch_page_summary(url: str) -> Dict[str, str]:
-    cache_key = _cache_key('page_summary', url)
+    cache_key = _cache_key('page_summary_v2', url)
     cached = _cache_get_json(cache_key)
     if isinstance(cached, dict):
         return {
@@ -1238,6 +1842,22 @@ def _fetch_page_summary(url: str) -> Dict[str, str]:
         )
         if date_match:
             summary['publishedAt'] = _clean_html_text(date_match.group(1))[:64]
+
+        if not summary['publishedAt'] and _is_eci_results_domain(urlparse(url).netloc):
+            last_updated_match = re.search(
+                r'Last\s+Updated\s+at\s*([0-9]{1,2}:[0-9]{2}\s*[AP]M)\s*On\s*([0-9]{2}/[0-9]{2}/[0-9]{4})',
+                html_text,
+                flags=re.IGNORECASE,
+            )
+            if last_updated_match:
+                time_text = last_updated_match.group(1).strip().upper().replace(' ', '')
+                date_text = last_updated_match.group(2).strip()
+                try:
+                    parsed_dt = datetime.strptime(f'{date_text} {time_text}', '%d/%m/%Y %I:%M%p')
+                    ist_tz = timezone(timedelta(hours=5, minutes=30))
+                    summary['publishedAt'] = parsed_dt.replace(tzinfo=ist_tz).isoformat()
+                except Exception:
+                    summary['publishedAt'] = f'{date_text} {time_text}'
     except Exception:
         return summary
 
@@ -1260,7 +1880,7 @@ def _fetch_official_context(
     user_text: str,
     query: str,
 ) -> Tuple[List[Dict[str, Any]], Optional[str], List[Dict[str, Any]]]:
-    context_cache_key = _cache_key('official_context_v4', f'{user_text}::{query}')
+    context_cache_key = _cache_key('official_context_v7', f'{user_text}::{query}')
     cached_context = _cache_get_json(context_cache_key)
     if isinstance(cached_context, dict):
         cached_matches = cached_context.get('matches', [])
@@ -1280,24 +1900,37 @@ def _fetch_official_context(
     def process_target_domain(target: Dict[str, Any], domain: str) -> Tuple[List[Dict[str, Any]], Optional[str]]:
         local_items: List[Dict[str, Any]] = []
         target_name = str(target.get('name', 'Official Source'))
+        target_id = str(target.get('id', ''))
+        target_priority = int(target.get('priority', 0) or 0)
+        election_context = _is_election_claim_text(user_text)
+        domain_is_eci_results = _is_eci_results_domain(domain)
         results, error = _search_official_pages(query, domain)
         if not results:
             results = _crawl_official_domain(domain, query)
         if not results:
             results = [{'url': f'https://{domain}/', 'title': f'{domain} official website'}]
 
-        for result in results[:2]:
+        max_results_to_scan = 4 if (election_context and (domain_is_eci_results or 'election' in target_id)) else 2
+        for result in results[:max_results_to_scan]:
             page_summary = _fetch_page_summary(result['url'])
             passage = f"{result.get('title', '')} {page_summary.get('snippet', '')}".strip()
             lexical = _fallback_similarity(user_text, passage or result.get('title', ''))
             overlap = _keyword_overlap_score(user_text, passage)
-            relevance = float((lexical * 0.7) + (overlap * 0.3))
+            result_boost = _official_result_signal_boost(
+                user_text=user_text,
+                domain=domain,
+                url=result.get('url', ''),
+                title=result.get('title', ''),
+                target_id=target_id,
+            )
+            priority_boost = 0.06 if target_priority >= 15 else (0.03 if target_priority >= 10 else 0.0)
+            relevance = float((lexical * 0.64) + (overlap * 0.26) + result_boost + priority_boost)
             if relevance < 0.10:
                 continue
             local_items.append(
                 {
                     'name': target_name,
-                    'targetId': target.get('id', ''),
+                    'targetId': target_id,
                     'domain': domain,
                     'url': result.get('url', ''),
                     'title': result.get('title', ''),
@@ -1305,6 +1938,8 @@ def _fetch_official_context(
                     'publishedAt': page_summary.get('publishedAt', ''),
                     'similarity': float(lexical),
                     'keywordOverlap': float(overlap),
+                    'resultSignalBoost': float(result_boost),
+                    'targetPriority': target_priority,
                     'relevance': relevance,
                     'sourceType': 'official-website',
                 }
@@ -1454,17 +2089,16 @@ def find_best_match(user_text: str, claims: List[Dict[str, Any]]) -> Tuple[float
     return float(scores[best_idx]), top_candidates[best_idx][1]
 
 
-def check_fake_news(text: str, demo_preset_id: str = '') -> Dict[str, Any]:
-    empty_consensus = {
-        'status': 'Limited',
-        'score': 0.0,
-        'summary': 'Not enough recent sources to determine agreement yet.',
-    }
-
+def check_fake_news(
+    text: str,
+    demo_preset_id: str = '',
+    recency_mode: str = _RECENCY_MODE_ALL_TIME,
+) -> Dict[str, Any]:
     if not get_api_key():
         # Continue with official/live-source evidence even when fact-check API key is missing.
         pass
 
+    normalized_recency_mode = _normalize_recency_mode(recency_mode)
     english_text, original_lang = translate_to_english(text)
     live_news_query = _compact_query(english_text)
     claims_query = _compact_query(english_text, limit=18)
@@ -1479,13 +2113,72 @@ def check_fake_news(text: str, demo_preset_id: str = '') -> Dict[str, Any]:
             else None
         )
 
-        live_news_articles, live_news_error = live_future.result()
-        official_context, official_context_error, official_targets = official_future.result()
-        social_context, social_context_error, social_context_similarity = social_future.result()
+        # Set per-request timeouts to prevent hanging (allow max 32 seconds total for all parallel requests)
+        try:
+            live_news_articles, live_news_error = live_future.result(timeout=10)
+        except Exception:
+            live_news_articles, live_news_error = [], 'Live news fetch timed out or failed.'
+        
+        try:
+            official_context, official_context_error, official_targets = official_future.result(timeout=14)
+        except Exception:
+            official_context, official_context_error, official_targets = [], 'Official context fetch timed out or failed.', []
+        
+        try:
+            social_context, social_context_error, social_context_similarity = social_future.result(timeout=10)
+        except Exception:
+            social_context, social_context_error, social_context_similarity = [], 'Social context fetch timed out or failed.', 0.0
+        
         if fact_future is not None:
-            claims, fact_check_error = fact_future.result()
+            try:
+                claims, fact_check_error = fact_future.result(timeout=10)
+            except Exception:
+                claims, fact_check_error = [], 'Fact check fetch timed out or failed.'
         else:
             claims, fact_check_error = [], 'Missing GOOGLE_FACT_CHECK_API_KEY in backend environment.'
+
+    recency_filter = {
+        'mode': normalized_recency_mode,
+        'windowDays': 7 if normalized_recency_mode == _RECENCY_MODE_ONE_WEEK else 0,
+        'liveNews': {'kept': len(live_news_articles), 'droppedOld': 0, 'droppedUndated': 0},
+        'officialContext': {'kept': len(official_context), 'droppedOld': 0, 'droppedUndated': 0},
+        'socialContext': {'kept': len(social_context), 'droppedOld': 0, 'droppedUndated': 0},
+        'factCheckRecent': False,
+    }
+    if normalized_recency_mode == _RECENCY_MODE_ONE_WEEK:
+        live_news_articles, live_filter_stats = _filter_evidence_items_by_days(live_news_articles, days=7)
+        official_context, official_filter_stats = _filter_evidence_items_by_days(official_context, days=7)
+        social_context, social_filter_stats = _filter_evidence_items_by_days(social_context, days=7)
+        social_context_similarity = max(
+            [float(item.get('similarity', 0) or 0) for item in social_context],
+            default=0.0,
+        )
+        recency_filter.update(
+            {
+                'liveNews': live_filter_stats,
+                'officialContext': official_filter_stats,
+                'socialContext': social_filter_stats,
+            }
+        )
+        if live_filter_stats.get('kept', 0) == 0 and (
+            live_filter_stats.get('droppedOld', 0) > 0 or live_filter_stats.get('droppedUndated', 0) > 0
+        ):
+            extra_note = 'No live-news articles were inside the last 7 days window.'
+            live_news_error = f'{live_news_error} {extra_note}'.strip() if live_news_error else extra_note
+        if official_filter_stats.get('kept', 0) == 0 and (
+            official_filter_stats.get('droppedOld', 0) > 0 or official_filter_stats.get('droppedUndated', 0) > 0
+        ):
+            extra_note = 'No official-site evidence was inside the last 7 days window.'
+            official_context_error = (
+                f'{official_context_error} {extra_note}'.strip() if official_context_error else extra_note
+            )
+        if social_filter_stats.get('kept', 0) == 0 and (
+            social_filter_stats.get('droppedOld', 0) > 0 or social_filter_stats.get('droppedUndated', 0) > 0
+        ):
+            extra_note = 'No social corroboration evidence was inside the last 7 days window.'
+            social_context_error = (
+                f'{social_context_error} {extra_note}'.strip() if social_context_error else extra_note
+            )
 
     live_news_score, top_live_news = _score_live_news(english_text, live_news_articles)
     live_news_consensus = _summarize_live_news_consensus(top_live_news)
@@ -1493,11 +2186,24 @@ def check_fake_news(text: str, demo_preset_id: str = '') -> Dict[str, Any]:
         [float(item.get('similarity', 0) or 0) for item in official_context],
         default=0.0,
     )
+    official_context_relevance = max(
+        [float(item.get('relevance', 0) or 0) for item in official_context],
+        default=0.0,
+    )
+    official_result_priority_evidence = bool(
+        any(
+            _is_eci_results_domain(str(item.get('domain', '')))
+            or any(hint in str(item.get('url', '')).lower() for hint in _ECI_RESULT_PATH_HINTS)
+            for item in official_context
+        )
+    )
 
     fact_check_similarity = 0.0
     best_claim: Optional[Dict[str, Any]] = None
     if claims:
         fact_check_similarity, best_claim = find_best_match(english_text, claims)
+    fact_check_recent = _is_fact_check_recent(best_claim, days=7)
+    recency_filter['factCheckRecent'] = bool(fact_check_recent)
 
     reviews = best_claim.get('claimReview', []) if best_claim else []
     rating = (reviews[0].get('textualRating', '') if reviews else '').lower()
@@ -1512,6 +2218,24 @@ def check_fake_news(text: str, demo_preset_id: str = '') -> Dict[str, Any]:
         if best_claim
         else None
     )
+    rating_signal = _fact_check_rating_signal(rating)
+    peak_live_freshness = max(
+        [float(item.get('freshnessScore', 0) or 0) for item in top_live_news],
+        default=0.0,
+    )
+    temporal_signal = _build_temporal_signal(
+        english_text,
+        claim_text,
+        best_claim,
+        top_live_news,
+        official_context,
+        social_context,
+    )
+    winner_conflict = _detect_election_winner_conflict(
+        english_text,
+        top_live_news,
+        temporal_signal.get('userYears', []),
+    )
 
     official_target_detected = bool(official_targets)
     trusted_official_target = any(
@@ -1519,8 +2243,14 @@ def check_fake_news(text: str, demo_preset_id: str = '') -> Dict[str, Any]:
         for item in official_targets
     )
 
-    if official_target_detected and trusted_official_target and official_context_similarity >= 0.25:
-        decision_similarity = float(official_context_similarity)
+    official_confident = bool(
+        official_context_similarity >= 0.25
+        or official_context_relevance >= 0.50
+        or (official_result_priority_evidence and official_context_relevance >= 0.42)
+    )
+
+    if official_target_detected and trusted_official_target and official_confident:
+        decision_similarity = float(max(official_context_similarity, official_context_relevance * 0.92))
         if decision_similarity <= 0 and not official_context:
             label = 'Unverified'
             reason = (
@@ -1529,15 +2259,66 @@ def check_fake_news(text: str, demo_preset_id: str = '') -> Dict[str, Any]:
             )
         else:
             label, reason = _classify_with_similarity_thresholds(decision_similarity)
-            reason += ' Decision was primarily based on matched official website evidence.'
+            if official_result_priority_evidence:
+                reason += ' Decision was primarily based on constituency/state-level ECI official result evidence.'
+            else:
+                reason += ' Decision was primarily based on matched official website evidence.'
     elif official_target_detected:
-        decision_similarity = float(max(fact_check_similarity, live_news_score, official_context_similarity))
+        decision_similarity = float(
+            max(
+                fact_check_similarity,
+                live_news_score,
+                official_context_similarity,
+                official_context_relevance * 0.85,
+            )
+        )
         label, reason = _classify_with_similarity_thresholds(decision_similarity)
         reason += ' Entity website target was discovered, but official-evidence confidence was limited, so corroboration signals were prioritized.'
     else:
-        decision_similarity = float(max(fact_check_similarity, live_news_score, official_context_similarity))
+        decision_similarity = float(
+            max(
+                fact_check_similarity,
+                live_news_score,
+                official_context_similarity,
+                official_context_relevance * 0.80,
+            )
+        )
         label, reason = _classify_with_similarity_thresholds(decision_similarity)
         reason += ' Entity-specific official source was not clearly detected, so fallback evidence was used.'
+
+    can_apply_fact_check_refute_hard = bool(
+        rating_signal == 'refutes'
+        and fact_check_similarity >= 0.62
+        and (
+            normalized_recency_mode != _RECENCY_MODE_ONE_WEEK
+            or fact_check_recent
+        )
+    )
+    if can_apply_fact_check_refute_hard:
+        label = 'Fake'
+        decision_similarity = max(decision_similarity, float(fact_check_similarity))
+        reason = (
+            'A closely matching fact-check rates this claim as false/misleading, '
+            'so it is marked as Fake.'
+        )
+    elif rating_signal == 'refutes' and fact_check_similarity >= 0.45 and label in {'Real', 'Likely Real'}:
+        label = 'Suspicious'
+        decision_similarity = max(decision_similarity, float(fact_check_similarity))
+        reason = (
+            'The closest fact-check is rated false/misleading and the match is moderate, '
+            'so this is downgraded to Suspicious.'
+        )
+    elif (
+        normalized_recency_mode == _RECENCY_MODE_ONE_WEEK
+        and rating_signal == 'supports'
+        and not fact_check_recent
+        and label in {'Real', 'Likely Real'}
+    ):
+        label = 'Suspicious'
+        reason = (
+            'Closest supporting fact-check is older than the last 7 days, '
+            'so it cannot confirm this as current real news in one-week mode.'
+        )
 
     # Corroboration override: when multiple fresh live sources strongly align,
     # treat as real even if official retrieval was weak or unavailable.
@@ -1552,6 +2333,11 @@ def check_fake_news(text: str, demo_preset_id: str = '') -> Dict[str, Any]:
         and len(top_live_news) >= 2
         and len(distinct_sources) >= 2
         and consensus_status in {'agreement', 'mixed'}
+        and peak_live_freshness >= 0.72
+        and rating_signal != 'refutes'
+        and not winner_conflict.get('isConflict', False)
+        and not temporal_signal.get('yearMismatch', False)
+        and not temporal_signal.get('staleForCurrentClaim', False)
         and label != 'Real'
     ):
         label = 'Real'
@@ -1572,12 +2358,29 @@ def check_fake_news(text: str, demo_preset_id: str = '') -> Dict[str, Any]:
         and official_context_similarity < 0.45
         and social_context_similarity >= 0.55
         and len(social_platforms) >= 2
+        and rating_signal != 'refutes'
+        and not temporal_signal.get('yearMismatch', False)
+        and not temporal_signal.get('staleForCurrentClaim', False)
     ):
         label = 'Likely Real'
         decision_similarity = max(decision_similarity, float(social_context_similarity))
         reason = (
             'Strong corroboration was found across multiple social platforms for this regional claim, '
             'so it is marked as Likely Real pending stronger official publication.'
+        )
+
+    if (
+        winner_conflict.get('isConflict', False)
+        and len(top_live_news) >= 2
+        and live_news_score >= 0.50
+    ):
+        claim_party_text = ', '.join(winner_conflict.get('claimParties', [])) or 'claimed party'
+        conflicting_party_text = ', '.join(winner_conflict.get('conflictingParties', [])) or 'other parties'
+        label = 'Fake'
+        decision_similarity = max(decision_similarity, float(live_news_score))
+        reason = (
+            f"Recent election coverage points to a different winner ({conflicting_party_text}) "
+            f"than the claim ({claim_party_text}), so this is marked as Fake."
         )
 
     # Guardrail for regional/local institution announcements:
@@ -1628,6 +2431,62 @@ def check_fake_news(text: str, demo_preset_id: str = '') -> Dict[str, Any]:
             'so it is marked as Likely Real.'
         )
 
+    if temporal_signal.get('yearMismatch', False) and label in {'Real', 'Likely Real'}:
+        label = 'Suspicious'
+        decision_similarity = max(decision_similarity, float(fact_check_similarity), float(live_news_score))
+        reason = (
+            'The claim year does not align with the years found in supporting evidence, '
+            'so this is marked as Suspicious.'
+        )
+
+    if temporal_signal.get('staleForCurrentClaim', False) and label in {'Real', 'Likely Real'}:
+        label = 'Suspicious'
+        decision_similarity = max(decision_similarity, float(fact_check_similarity), float(live_news_score))
+        reason = (
+            'Available evidence is old for a time-sensitive claim and does not confirm the current situation, '
+            'so this is marked as Suspicious.'
+        )
+
+    if normalized_recency_mode == _RECENCY_MODE_ONE_WEEK:
+        has_current_live = len(top_live_news) > 0
+        has_current_official = len(official_context) > 0
+        has_current_social = len(social_context) > 0
+        if not any([has_current_live, has_current_official, has_current_social]):
+            if rating_signal == 'refutes' and fact_check_similarity >= 0.45 and not fact_check_recent:
+                label = 'Suspicious'
+                reason = (
+                    'In one-week mode, no current (last 7 days) corroborating evidence was found, and the matched '
+                    'fact-check is older than one week, so this remains Suspicious.'
+                )
+            elif label in {'Real', 'Likely Real', 'Fake'}:
+                label = 'Unverified'
+                reason = (
+                    'No evidence from the last 7 days was found in one-week mode, '
+                    'so the claim is marked as Unverified for current verification.'
+                )
+
+    strong_contradiction = bool(
+        winner_conflict.get('isConflict', False)
+        or can_apply_fact_check_refute_hard
+    )
+    if label == 'Fake' and not strong_contradiction:
+        if (
+            fact_check_similarity < 0.45
+            and live_news_score < 0.45
+            and official_context_similarity < 0.45
+        ):
+            label = 'Unverified'
+            reason = (
+                'Evidence is too weak for a confident real/fake decision, '
+                'so this is marked as Unverified.'
+            )
+        elif fact_check_similarity < 0.62:
+            label = 'Suspicious'
+            reason = (
+                'Evidence does not strongly support this claim, but no decisive contradiction was found, '
+                'so this is marked as Suspicious.'
+            )
+
     if top_official_evidence and (
         trusted_official_target
         or float(top_official_evidence.get('similarity', 0) or 0) >= 0.25
@@ -1642,6 +2501,21 @@ def check_fake_news(text: str, demo_preset_id: str = '') -> Dict[str, Any]:
         reason += f" Closest verified claim: '{claim_text}'."
     if rating:
         reason += f' Fact-check rating noted: {rating}.'
+    if rating_signal != 'unknown':
+        reason += f' Fact-check signal: {rating_signal}.'
+    if normalized_recency_mode == _RECENCY_MODE_ONE_WEEK:
+        reason += ' Evidence window: only sources from the last 7 days were considered.'
+        if not fact_check_recent and best_claim is not None:
+            reason += ' Closest fact-check item is older than 7 days.'
+    if temporal_signal.get('yearMismatch', False):
+        reason += (
+            f" Year mismatch detected (claim years: {temporal_signal.get('userYears', [])}, "
+            f"evidence years: {temporal_signal.get('evidenceYears', [])})."
+        )
+    if temporal_signal.get('staleForCurrentClaim', False):
+        age_days = temporal_signal.get('newestEvidenceAgeDays')
+        if isinstance(age_days, (float, int)):
+            reason += f' Evidence recency note: latest dated evidence is about {float(age_days):.0f} days old.'
     if official_context:
         reason += ' Related context was found on official/trusted websites.'
     if social_context:
@@ -1666,8 +2540,10 @@ def check_fake_news(text: str, demo_preset_id: str = '') -> Dict[str, Any]:
         'language': original_lang,
         'translationApplied': english_text != text,
         'translatedText': english_text,
+        'recencyMode': normalized_recency_mode,
         'liveNewsSimilarity': float(live_news_score),
         'officialContextSimilarity': float(official_context_similarity),
+        'officialContextRelevance': float(official_context_relevance),
         'socialContextSimilarity': float(social_context_similarity),
         'officialMode': bool(official_target_detected),
         'evidence': {
@@ -1681,13 +2557,21 @@ def check_fake_news(text: str, demo_preset_id: str = '') -> Dict[str, Any]:
             'socialContext': social_context,
             'socialContextError': social_context_error,
             'factCheckError': fact_check_error,
+            'factCheckRatingSignal': rating_signal,
+            'temporalSignal': temporal_signal,
+            'winnerConflict': winner_conflict,
+            'recencyFilter': recency_filter,
+            'officialResultPriorityEvidence': official_result_priority_evidence,
             'decisionSignals': {
                 'decisionSimilarity': float(decision_similarity),
                 'factCheckSimilarity': float(fact_check_similarity),
                 'liveNewsSimilarity': float(live_news_score),
+                'peakLiveFreshness': float(peak_live_freshness),
                 'officialContextSimilarity': float(official_context_similarity),
+                'officialContextRelevance': float(official_context_relevance),
                 'socialContextSimilarity': float(social_context_similarity),
                 'officialMode': bool(official_target_detected),
+                'recencyMode': normalized_recency_mode,
             },
         },
     }, demo_preset_id)

@@ -237,6 +237,73 @@ body {
   box-shadow: 0 0 0 4px rgba(44, 136, 192, 0.16);
   transform: translateY(-1px);
 }
+.recency-toggle-wrap {
+  margin-bottom: 12px;
+  background: #f7fbff;
+  border: 1px solid #d7e6f3;
+  border-radius: 14px;
+  padding: 12px;
+}
+
+.recency-toggle-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.recency-toggle-head strong {
+  color: #163a5c;
+  font-size: 0.9rem;
+}
+
+.recency-toggle-head span {
+  color: #4f6b86;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.recency-toggle-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.recency-btn {
+  border: 1px solid #d5e4f0;
+  border-radius: 12px;
+  padding: 10px 12px;
+  background: #ffffff;
+  text-align: left;
+  cursor: pointer;
+  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+.recency-btn strong {
+  display: block;
+  color: #17395a;
+  font-size: 0.86rem;
+}
+
+.recency-btn span {
+  display: block;
+  margin-top: 5px;
+  color: #5b758e;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.recency-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 14px rgba(19, 61, 99, 0.08);
+}
+
+.recency-btn-active {
+  border-color: #2e87bf;
+  background: linear-gradient(145deg, #eef7ff, #e5f2ff);
+  box-shadow: 0 10px 14px rgba(28, 98, 157, 0.14);
+}
 
 .image-verify-box {
   margin-top: 14px;
@@ -1214,6 +1281,15 @@ body {
   }
 
   .preset-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .recency-toggle-head {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .recency-toggle-row {
     grid-template-columns: 1fr;
   }
 

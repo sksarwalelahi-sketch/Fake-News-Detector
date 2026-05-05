@@ -118,6 +118,7 @@ def verify_image_news(
     image_bytes: bytes,
     filename: str = 'uploaded-image',
     content_type: str = 'image/jpeg',
+    recency_mode: str = 'all-time',
 ) -> Dict[str, Any]:
     extracted_text, ocr_error = _try_ocr(image_bytes)
     image_name = Path(filename).name or 'uploaded-image'
@@ -141,6 +142,7 @@ def verify_image_news(
             'language': 'unknown',
             'translationApplied': False,
             'translatedText': '',
+            'recencyMode': recency_mode,
             'imageVerification': {
                 'mode': 'image_ocr',
                 'fileName': image_name,
@@ -167,7 +169,7 @@ def verify_image_news(
             },
         }
 
-    result = check_fake_news(extracted_text)
+    result = check_fake_news(extracted_text, recency_mode=recency_mode)
     result['imageVerification'] = {
         'mode': 'image_ocr',
         'fileName': image_name,

@@ -16,6 +16,16 @@ from backend_api.services.firebase_store import (
 api_bp = Blueprint('api', __name__)
 _ALLOWED_IMAGE_TYPES = {'image/jpeg', 'image/png', 'image/webp'}
 _MAX_IMAGE_BYTES = 8 * 1024 * 1024
+_VALID_RECENCY_MODES = {'all-time', 'one-week'}
+
+
+def _normalize_recency_mode(value: str) -> str:
+    normalized = str(value or '').strip().lower()
+    if normalized in {'week', '7d', '7-days', 'last-7-days', 'last7days'}:
+        return 'one-week'
+    if normalized in _VALID_RECENCY_MODES:
+        return normalized
+    return 'all-time'
 
 
 @api_bp.get('/health')
@@ -37,11 +47,12 @@ def check_news():
     payload = request.get_json(silent=True) or {}
     text = str(payload.get('text', '')).strip()
     demo_preset_id = str(payload.get('demoPresetId', '')).strip()
+    recency_mode = _normalize_recency_mode(str(payload.get('recencyMode', 'all-time')))
 
     if not text:
         return jsonify({'error': "'text' is required."}), 400
 
-    result = check_fake_news(text, demo_preset_id=demo_preset_id)
+    result = check_fake_news(text, demo_preset_id=demo_preset_id, recency_mode=recency_mode)
 
     history_item = {
         'text': text,
@@ -51,11 +62,13 @@ def check_news():
         'factCheckSimilarity': float(result.get('factCheckSimilarity', 0) or 0),
         'liveNewsSimilarity': float(result.get('liveNewsSimilarity', 0) or 0),
         'officialContextSimilarity': float(result.get('officialContextSimilarity', 0) or 0),
+        'officialContextRelevance': float(result.get('officialContextRelevance', 0) or 0),
         'socialContextSimilarity': float(result.get('socialContextSimilarity', 0) or 0),
         'source': result.get('source', ''),
         'language': result.get('language', 'unknown'),
         'translationApplied': bool(result.get('translationApplied', False)),
         'translatedText': result.get('translatedText', text),
+        'recencyMode': result.get('recencyMode', recency_mode),
         'evidence': result.get('evidence', {}),
         'createdAt': now_iso_utc(),
     }
@@ -98,6 +111,7 @@ def verify_image():
     file = request.files.get('image')
     if file is None:
         return jsonify({'error': "'image' file is required."}), 400
+    recency_mode = _normalize_recency_mode(str(request.form.get('recencyMode', 'all-time')))
 
     content_type = str(file.mimetype or '').lower()
     if content_type not in _ALLOWED_IMAGE_TYPES:
@@ -113,6 +127,7 @@ def verify_image():
         image_bytes=image_bytes,
         filename=file.filename or 'uploaded-image',
         content_type=content_type or 'image/jpeg',
+        recency_mode=recency_mode,
     )
     extracted_text = str(result.get('imageVerification', {}).get('ocrText', '')).strip()
     history_text = extracted_text or f"[Image Verification] {file.filename or 'uploaded-image'}"
@@ -125,11 +140,13 @@ def verify_image():
         'factCheckSimilarity': float(result.get('factCheckSimilarity', 0) or 0),
         'liveNewsSimilarity': float(result.get('liveNewsSimilarity', 0) or 0),
         'officialContextSimilarity': float(result.get('officialContextSimilarity', 0) or 0),
+        'officialContextRelevance': float(result.get('officialContextRelevance', 0) or 0),
         'socialContextSimilarity': float(result.get('socialContextSimilarity', 0) or 0),
         'source': result.get('source', ''),
         'language': result.get('language', 'unknown'),
         'translationApplied': bool(result.get('translationApplied', False)),
         'translatedText': result.get('translatedText', history_text),
+        'recencyMode': result.get('recencyMode', recency_mode),
         'evidence': result.get('evidence', {}),
         'imageVerification': result.get('imageVerification', {}),
         'createdAt': now_iso_utc(),

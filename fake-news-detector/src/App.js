@@ -2,6 +2,10 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import './App.css';
 
 const API_BASE_URL = process.env.REACT_APP_API_BASE_URL || 'http://127.0.0.1:5000';
+const RECENCY_MODE_OPTIONS = [
+  { value: 'all-time', label: 'All Time Evidence', hint: 'Use all available evidence.' },
+  { value: 'one-week', label: 'Last 7 Days Only', hint: 'Only current-week evidence is considered.' },
+];
 const DEMO_PRESETS = [
   {
     id: 'en-health-rumor-suspicious',
@@ -122,6 +126,12 @@ const resolveDecisionSignals = (result) => {
       : typeof result?.officialContextSimilarity === 'number'
         ? result.officialContextSimilarity
         : 0;
+  const officialContextRelevance =
+    typeof fromEvidence?.officialContextRelevance === 'number'
+      ? fromEvidence.officialContextRelevance
+      : typeof result?.officialContextRelevance === 'number'
+        ? result.officialContextRelevance
+        : 0;
   const socialContextSimilarity =
     typeof fromEvidence?.socialContextSimilarity === 'number'
       ? fromEvidence.socialContextSimilarity
@@ -138,6 +148,7 @@ const resolveDecisionSignals = (result) => {
     factCheckSimilarity,
     liveNewsSimilarity,
     officialContextSimilarity,
+    officialContextRelevance,
     socialContextSimilarity,
     officialMode,
   };
@@ -150,11 +161,13 @@ const resultFromHistory = (entry) => ({
   factCheckSimilarity: typeof entry?.factCheckSimilarity === 'number' ? entry.factCheckSimilarity : 0,
   liveNewsSimilarity: typeof entry?.liveNewsSimilarity === 'number' ? entry.liveNewsSimilarity : 0,
   officialContextSimilarity: typeof entry?.officialContextSimilarity === 'number' ? entry.officialContextSimilarity : 0,
+  officialContextRelevance: typeof entry?.officialContextRelevance === 'number' ? entry.officialContextRelevance : 0,
   socialContextSimilarity: typeof entry?.socialContextSimilarity === 'number' ? entry.socialContextSimilarity : 0,
   source: entry?.source || '',
   language: entry?.language || 'unknown',
   translationApplied: Boolean(entry?.translationApplied),
   translatedText: entry?.translatedText || entry?.text || '',
+  recencyMode: entry?.recencyMode || 'all-time',
   evidence: entry?.evidence || {
     factCheck: null,
     liveNews: [],
@@ -179,6 +192,7 @@ function App() {
   const [imageFile, setImageFile] = useState(null);
   const [imagePreviewUrl, setImagePreviewUrl] = useState('');
   const [result, setResult] = useState(null);
+  const [recencyMode, setRecencyMode] = useState('one-week');
   const [loading, setLoading] = useState(false);
   const [imageLoading, setImageLoading] = useState(false);
   const [history, setHistory] = useState([]);
@@ -330,6 +344,7 @@ function App() {
         signal: controller.signal,
         body: JSON.stringify({
           text: newsText.trim(),
+          recencyMode,
           demoPresetId:
             selectedPresetId && DEMO_PRESETS.some((item) => item.id === selectedPresetId && item.text === newsText)
               ? selectedPresetId
@@ -407,6 +422,7 @@ function App() {
     try {
       const formData = new FormData();
       formData.append('image', imageFile);
+      formData.append('recencyMode', recencyMode);
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 45000);
 
@@ -508,6 +524,7 @@ function App() {
 
   const showHistoryDetails = (entry) => {
     setNewsText(entry?.text || '');
+    setRecencyMode(entry?.recencyMode === 'one-week' ? 'one-week' : 'all-time');
     setResult(resultFromHistory(entry));
     // Ensure the user lands on the result/explainability panel when opening old records.
     requestAnimationFrame(() => {
@@ -569,6 +586,25 @@ function App() {
           </div>
 
           <label htmlFor="news-input">News Text</label>
+          <div className="recency-toggle-wrap">
+            <div className="recency-toggle-head">
+              <strong>Verification Window</strong>
+              <span>{recencyMode === 'one-week' ? 'Current-mode enabled' : 'Standard mode'}</span>
+            </div>
+            <div className="recency-toggle-row">
+              {RECENCY_MODE_OPTIONS.map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  className={`recency-btn ${recencyMode === option.value ? 'recency-btn-active' : ''}`}
+                  onClick={() => setRecencyMode(option.value)}
+                >
+                  <strong>{option.label}</strong>
+                  <span>{option.hint}</span>
+                </button>
+              ))}
+            </div>
+          </div>
           <textarea
             id="news-input"
             placeholder="Type or paste news content here..."
@@ -635,11 +671,22 @@ function App() {
               {typeof result?.officialContextSimilarity === 'number' ? (
                 <p>Official site relevance: {result.officialContextSimilarity.toFixed(3)}</p>
               ) : null}
+              {typeof result?.officialContextRelevance === 'number' ? (
+                <p>Official priority score: {result.officialContextRelevance.toFixed(3)}</p>
+              ) : null}
               {typeof result?.socialContextSimilarity === 'number' ? (
                 <p>Social corroboration relevance: {result.socialContextSimilarity.toFixed(3)}</p>
               ) : null}
               {result?.translationApplied && result?.translatedText ? (
                 <p>Translated for analysis: {result.translatedText}</p>
+              ) : null}
+              {result?.recencyMode ? (
+                <p>
+                  Evidence window:{' '}
+                  {String(result.recencyMode).toLowerCase() === 'one-week'
+                    ? 'Last 7 days only'
+                    : 'All time'}
+                </p>
               ) : null}
               {result?.source ? (
                 <p>
@@ -739,6 +786,14 @@ function App() {
                 </div>
                 <div className="score-track">
                   <div className="score-fill score-fill-quaternary" style={{ width: `${clampPercent(signals?.officialContextSimilarity)}%` }} />
+                </div>
+
+                <div className="confidence-row">
+                  <span>Official Priority Signal</span>
+                  <strong>{clampPercent(signals?.officialContextRelevance).toFixed(0)}%</strong>
+                </div>
+                <div className="score-track">
+                  <div className="score-fill score-fill-secondary" style={{ width: `${clampPercent(signals?.officialContextRelevance)}%` }} />
                 </div>
 
                 <div className="confidence-row">
@@ -1146,6 +1201,7 @@ function App() {
                       <div className="history-audit">
                         {entry.language ? <span>Lang: {entry.language}</span> : null}
                         {entry.translationApplied ? <span>Translated</span> : null}
+                        {entry.recencyMode === 'one-week' ? <span>Window: 7d</span> : <span>Window: all</span>}
                         {entry.source ? <span>Fact-check source saved</span> : null}
                         {entry.evidence && Object.keys(entry.evidence).length ? <span>Evidence snapshot saved</span> : null}
                       </div>
@@ -1175,6 +1231,7 @@ function App() {
                       {typeof entry.factCheckSimilarity === 'number' ? `Fact ${entry.factCheckSimilarity.toFixed(3)} | ` : ''}
                       {typeof entry.liveNewsSimilarity === 'number' ? `Live ${entry.liveNewsSimilarity.toFixed(3)} | ` : ''}
                       {typeof entry.officialContextSimilarity === 'number' ? `Official ${entry.officialContextSimilarity.toFixed(3)} | ` : ''}
+                      {typeof entry.officialContextRelevance === 'number' ? `OfficialPriority ${entry.officialContextRelevance.toFixed(3)} | ` : ''}
                       {typeof entry.socialContextSimilarity === 'number' ? `Social ${entry.socialContextSimilarity.toFixed(3)} | ` : ''}
                       {formatTime(entry.createdAt)}
                     </span>
